@@ -24,25 +24,9 @@
 #include <linux/uaccess.h>
 #include <linux/syscalls.h>
 
+#include "mpu_syscall_hook.h"
+
 static char saved_syscall_name[64];
-
-// 定义所需结构体和类型
-typedef struct mpu_ioctl_call
-{
-  unsigned int fd;
-  unsigned int cmd;
-  unsigned long arg;
-} mpu_ioctl_call_t;
-
-typedef struct mpu_ctx
-{
-  void *private_data;
-} mpu_ctx_t;
-
-typedef struct mpu_module
-{
-  long (*ioctl)(mpu_ctx_t *ctx, mpu_ioctl_call_t *call, dev_t dev);
-} mpu_module_t;
 
 typedef struct mpu_hook_instance
 {
@@ -71,13 +55,23 @@ static mpu_hook_instance_t mpu_hook_instance;
 static dev_t get_rdev(unsigned int fd)
 {
   struct fd f = fdget(fd);
+  struct file *file;
   dev_t dev = 0;
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 10, 0)
+  // kernel 6.10+ 使用新的 fd_file() 接口
+  file = fd_file(f);
+  if (!file)
+    return 0;
+#else
+  // 旧内核使用 f.file
   if (!f.file)
     return 0;
+  file = f.file;
+#endif
 
-  if (f.file->f_inode)
-    dev = f.file->f_inode->i_rdev;
+  if (file->f_inode)
+    dev = file->f_inode->i_rdev;
 
   fdput(f);
   return dev;
